@@ -58,11 +58,56 @@ jobs:
 
       # Cheap end-to-end smoke test: the built exe actually loads
       # WinDivert.dll, reports its own version, and compiles its filters. No
-      # elevation needed.
-      - name: Smoke test the built binary
+      # elevation needed. Split into separate steps so a failure identifies
+      # the command, and emit diagnostics (cwd, dist contents, runtime files,
+      # captured output, exit codes) to make silent/loader crashes visible.
+      - name: Smoke test --version
+        shell: pwsh
+        env:
+          RUST_BACKTRACE: "1"
         run: |
-          ./target/release-dist/bosphorus.exe --version
-          ./target/release-dist/bosphorus.exe --check-filters
+          $ErrorActionPreference = "Continue"
+          Write-Host "CWD=$((Get-Location).Path)"
+          Write-Host "Listing target/release-dist (if present):"
+          if (Test-Path ./target/release-dist) {
+            Get-ChildItem -Force ./target/release-dist | Format-Table -AutoSize | Out-String -Width 4096 | Write-Host
+          } else {
+            Write-Host "target/release-dist: MISSING"
+          }
+          foreach ($p in @(
+            "./target/release-dist/bosphorus.exe",
+            "./target/release-dist/WinDivert.dll",
+            "./target/release-dist/WinDivert64.sys",
+            "assets/WinDivert-$env:WINDIVERT_VERSION-A/x64/WinDivert.dll",
+            "assets/WinDivert-$env:WINDIVERT_VERSION-A/x64/WinDivert64.sys"
+          )) {
+            Write-Host ("exists {0} = {1}" -f $p, (Test-Path $p))
+          }
+          ./target/release-dist/bosphorus.exe --version 2>&1 | Tee-Object -Variable out
+          $code = $LASTEXITCODE
+          Write-Host ("--version exit code: {0}" -f $code)
+          if ($out) { Write-Host ("--version output bytes/chars: {0}" -f ($out | Out-String).Length) }
+          if ($code -ne 0) { throw "--version failed with exit code $code" }
+
+      - name: Smoke test --check-filters
+        shell: pwsh
+        env:
+          RUST_BACKTRACE: "1"
+        run: |
+          $ErrorActionPreference = "Continue"
+          Write-Host "CWD=$((Get-Location).Path)"
+          foreach ($p in @(
+            "./target/release-dist/bosphorus.exe",
+            "./target/release-dist/WinDivert.dll",
+            "./target/release-dist/WinDivert64.sys"
+          )) {
+            Write-Host ("exists {0} = {1}" -f $p, (Test-Path $p))
+          }
+          ./target/release-dist/bosphorus.exe --check-filters 2>&1 | Tee-Object -Variable out
+          $code = $LASTEXITCODE
+          Write-Host ("--check-filters exit code: {0}" -f $code)
+          if ($out) { Write-Host ("--check-filters output bytes/chars: {0}" -f ($out | Out-String).Length) }
+          if ($code -ne 0) { throw "--check-filters failed with exit code $code" }
 
       - name: Stage artifact
         shell: pwsh
